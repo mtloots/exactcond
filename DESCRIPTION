@@ -1,0 +1,30 @@
+Package: exactcond
+Type: Package
+Title: Exact Conditional Reference Distributions for Tables and Selected Linear Models
+Version: 0.1.0
+Authors@R: person("M. Theodor", "Loots", role = c("aut", "cre"), email = "theo.loots@gmail.com",
+                    comment = c(ORCID = "0000-0001-7722-3913"))
+Description: Reference distributions that are exact at every sample size, obtained by conditioning
+    on a statistic sufficient for the nuisance parameter rather than by appealing to an asymptotic
+    approximation. Two conditionings are supplied. For a two-way table the row and column totals are
+    sufficient for the marginal parameters, so conditioning on both margins leaves the Fisher-Yates
+    law, sampled here exactly by random permutation of the column labels; statistics include
+    Goodman's linear-by-linear association and, for nominal rows against an ordinal column, the
+    dispersion of the row mean scores, whose components are the group contrasts themselves. A
+    two-table form conditions further on the total score to cancel a common association parameter,
+    giving a nuisance-free test that two tables share it. For a linear model under a null in which
+    the tested structure is absent, a statistic invariant to the coefficients and the error scale
+    depends on the data only through the residual direction, which is uniform on the sphere of the
+    residual space; the reference stays exact when the statistic is maximised over candidate
+    structures, and so remains valid after a spatial weight matrix has been chosen by fit. Every
+    replicate draws from its own stream, so results do not depend on the thread count. The same C
+    sources back the 'Python' package 'exactcond'.
+URL: https://github.com/mtloots/exactcond
+BugReports: https://github.com/mtloots/exactcond/issues
+License: GPL-3
+Encoding: UTF-8
+Imports: stats
+NeedsCompilation: yes
+Config/testthat/edition: 3
+Suggests: testthat (>= 3.0.0)
+Config/roxygen2/version: 8.0.0

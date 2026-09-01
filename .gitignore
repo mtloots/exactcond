@@ -1,0 +1,8 @@
+# build artefacts: the shared library and objects are rebuilt from src on every install
+src/*.o
+src/*.so
+src/*.dll
+*.tar.gz
+*.Rcheck/
+.Rhistory
+.RData
