@@ -1,19 +1,22 @@
 ## Test environments
 
 * local macOS 15 (arm64), R 4.5.1, `R CMD check --as-cran`: 0 errors, 0 warnings, 2 notes.
+* win-builder R-devel and R-release: submitted 1 September 2026, RESULTS NOT YET RECEIVED.
 
-Nothing else has been run yet. In particular there has been no win-builder run, no r-devel run and
-no GitHub Actions matrix; those must be done before submission and this file updated to say what
-they actually reported, rather than what they would be expected to report.
+No GitHub Actions matrix has been run. This file states what was actually run; the win-builder line
+above must be replaced with what those runs reported before the package is submitted, not with what
+they would be expected to report.
 
 ## R CMD check results
 
-Two notes, both of them properties of the checking environment rather than of the package.
+Two notes locally.
 
-* New submission, and the URLs in DESCRIPTION return 404 because the repository has not yet been
-  created. To be resolved before submission, either by creating it or by removing the fields.
+* New submission. Expected and unavoidable for a first submission. The DESCRIPTION URLs previously
+  returned 404 and no longer do; the repository now exists and both the homepage and the issues page
+  resolve.
 * "Skipping checking HTML validation: 'tidy' doesn't look like recent enough HTML Tidy" and
-  "Skipping checking math rendering: package 'V8' unavailable". Both are missing local tools.
+  "Skipping checking math rendering: package 'V8' unavailable". Both are missing local tools rather
+  than properties of the package, and should not appear on CRAN's machines.
 
 ## Notes for the reviewer
 
