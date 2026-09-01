@@ -1,11 +1,13 @@
 ## Test environments
 
 * local macOS 15 (arm64), R 4.5.1, `R CMD check --as-cran`: 0 errors, 0 warnings, 2 notes.
-* win-builder R-devel and R-release: submitted 1 September 2026, RESULTS NOT YET RECEIVED.
+* win-builder R-devel (R Under development, 2026-08-31 r90457 ucrt): 0 errors, 0 warnings, 1 note.
+  The note was "New submission" together with a spell-check flag on the word "conditionings", which
+  has since been reworded. Notably the local "HTML version of manual" note did NOT appear there,
+  confirming it was a missing local tool rather than a property of the package.
+* win-builder R-release: submitted at the same time.
 
-No GitHub Actions matrix has been run. This file states what was actually run; the win-builder line
-above must be replaced with what those runs reported before the package is submitted, not with what
-they would be expected to report.
+No GitHub Actions matrix has been run.
 
 ## R CMD check results
 
@@ -16,7 +18,7 @@ Two notes locally.
   resolve.
 * "Skipping checking HTML validation: 'tidy' doesn't look like recent enough HTML Tidy" and
   "Skipping checking math rendering: package 'V8' unavailable". Both are missing local tools rather
-  than properties of the package, and should not appear on CRAN's machines.
+  than properties of the package; win-builder reported the HTML manual check as OK.
 
 ## Notes for the reviewer
 

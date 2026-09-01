@@ -6,7 +6,7 @@ Authors@R: person("M. Theodor", "Loots", role = c("aut", "cre"), email = "theo.l
                     comment = c(ORCID = "0000-0001-7722-3913"))
 Description: Reference distributions that are exact at every sample size, obtained by conditioning
     on a statistic sufficient for the nuisance parameter rather than by appealing to an asymptotic
-    approximation. Two conditionings are supplied. For a two-way table the row and column totals are
+    approximation. Two forms of conditioning are supplied. For a two-way table the row and column totals are
     sufficient for the marginal parameters, so conditioning on both margins leaves the Fisher-Yates
     law, sampled here exactly by random permutation of the column labels; statistics include
     Goodman's linear-by-linear association and, for nominal rows against an ordinal column, the
