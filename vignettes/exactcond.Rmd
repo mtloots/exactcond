@@ -1,0 +1,149 @@
+---
+title: "Exact conditional reference distributions"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Exact conditional reference distributions}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
+```
+
+```{r setup}
+library(exactcond)
+```
+
+## The idea
+
+A nuisance parameter is removed by conditioning on a statistic that is sufficient for it. What
+remains carries no nuisance, so a reference distribution drawn from it is exact at every sample
+size: no asymptotic approximation and no bootstrap. The package supplies two such conditionings,
+each sampled by a pure-C back-end in which every replicate draws from its own random stream, so a
+result does not depend on the number of threads.
+
+## Two-way tables with both margins fixed
+
+In an $r \times c$ table the row and column totals are sufficient for the marginal parameters.
+Given both, the table follows the Fisher-Yates (multivariate hypergeometric) law, which is sampled
+exactly by permuting the column labels of the individual observations.
+
+For nominal rows against an ordinal column, the default statistic is the dispersion of the row
+mean scores. Its components are the group contrasts themselves, so a significant result points
+directly at the rows that differ.
+
+```{r}
+tab <- matrix(c(3, 228, 72,
+                10, 548, 67,
+                7, 276, 131), nrow = 3, byrow = TRUE)
+ec_rc_test(tab, v = c(-1, 0, 1), B = 5000, seed = 1)
+```
+
+When both classifications are ordered, `stat = "linlin"` gives Goodman's (1979)
+linear-by-linear association, and `"pearson"` and `"lr"` give the familiar unordered statistics
+referred to the exact conditional law rather than to the chi-square.
+
+```{r}
+ec_rc_test(tab, stat = "linlin", B = 5000, seed = 1)$p.value
+```
+
+The reference distribution itself is available for any margins.
+
+```{r}
+null <- ec_rc_null(rows = c(30, 40), cols = c(35, 35), stat = "pearson", B = 2000, seed = 2)
+quantile(null, c(0.5, 0.95))
+```
+
+`ec_pvalue()` turns an observed value and a sample from the null into a p-value, a mid-p value and
+a Monte Carlo interval for the p-value.
+
+```{r}
+str(ec_pvalue(quantile(null, 0.95), null))
+```
+
+## Do two tables share an association?
+
+`ec_rc_two()` conditions further on the total score, which cancels a common association
+parameter. The result is a test, free of any nuisance parameter, of whether two tables share it.
+The conditional law is sampled by a Markov chain (hence `burn` and `thin`); the function reports
+the conditional mid-p value and the size attainable at `alpha`, since the law is discrete.
+
+```{r}
+a <- matrix(c(20, 8, 3, 9, 22, 7, 4, 8, 19), 3, byrow = TRUE)
+b <- matrix(c(18, 9, 4, 8, 20, 8, 5, 9, 18), 3, byrow = TRUE)
+r2 <- ec_rc_two(a, b, B = 2000, seed = 3)
+c(midp = r2$midp, size = r2$size)
+```
+
+## Linear models after the structure was chosen by fit
+
+In a linear model under a null in which the tested structure is absent, any statistic that is
+invariant to the coefficients and to the error scale depends on the data only through the residual
+direction, and that direction is uniform on the unit sphere of the residual space. So the
+reference stays exact when the statistic is the maximum over several candidate structures, for
+instance several spatial weight matrices, one of which was chosen because it fitted best.
+
+`ec_sphere_maxquad()` samples the maximum over candidate matrices of the normalised quadratic form
+in the residual direction.
+
+```{r}
+n <- 12
+X <- cbind(1, seq_len(n))
+M <- diag(n) - X %*% solve(crossprod(X), t(X))
+A <- diag(n)[, c(n, seq_len(n - 1))]
+A <- (A + t(A)) / 2
+quantile(ec_sphere_maxquad(M, A, B = 2000, seed = 4), 0.95)
+```
+
+## Permutation tests for batteries and networks
+
+Two permutation tests use the same back-end. They refer a statistic to the law obtained by
+permuting group labels, across individuals or across clusters (exchangeability blocks in the sense
+of Winkler et al., 2014).
+
+`ec_multi_test()` tests a battery of categorical items across groups with one p-value: the sum or
+the maximum over items of a per-item statistic, in the spirit of Pesarin and Salmaso's (2010)
+nonparametric combination. Per-item p-values come from the same permutations, so they can be used
+for a closed follow-up.
+
+```{r}
+set.seed(2)
+g <- rep(c("a", "b", "c"), c(60, 80, 60))
+x <- cbind(rbinom(200, 1, 0.9), rbinom(200, 1, 0.95),
+           rbinom(200, 1, ifelse(g == "c", 0.7, 0.9)))   # only item 3 differs
+r <- ec_multi_test(x, g, B = 2000, seed = 1)
+r
+r$items
+```
+
+`ec_diffnet_test()` compares correlation networks across groups without a Gaussian assumption. The
+edge statistic is the heterogeneity of the Fisher-transformed correlations. The network statistic
+is their sum or maximum over edges, as in the Network Comparison Test of van Borkulo et al. (2023).
+With `rank = TRUE` the procedure is distribution-free.
+
+```{r}
+set.seed(1)
+n <- 120; p <- 5
+g <- rep(c("a", "b"), each = n / 2)
+z <- matrix(rnorm(n * p), n)
+z[g == "b", 2] <- 0.8 * z[g == "b", 1] + 0.6 * z[g == "b", 2]
+ec_diffnet_test(z, g, B = 999, seed = 1)
+```
+
+## References
+
+Goodman, L. A. (1979). Simple models for the analysis of association in cross-classifications
+having ordered categories. *Journal of the American Statistical Association*, 74, 537-552.
+doi:10.1080/01621459.1979.10481650
+
+Pesarin, F. and Salmaso, L. (2010). *Permutation Tests for Complex Data*. Wiley.
+doi:10.1002/9780470689516
+
+van Borkulo, C. D., van Bork, R., Boschloo, L., Kossakowski, J. J., Tio, P., Schoevers, R. A.,
+Borsboom, D. and Waldorp, L. J. (2023). Comparing network structures on three aspects: a
+permutation test. *Psychological Methods*, 28, 1273-1285. doi:10.1037/met0000476
+
+Winkler, A. M., Ridgway, G. R., Webster, M. A., Smith, S. M. and Nichols, T. E. (2014).
+Permutation inference for the general linear model. *NeuroImage*, 92, 381-397.
+doi:10.1016/j.neuroimage.2014.01.060

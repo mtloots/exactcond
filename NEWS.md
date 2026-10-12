@@ -1,5 +1,7 @@
 # exactcond 0.2.0
 
+* A vignette, `vignette("exactcond")`, working through every exported function, and references
+  with DOIs in the DESCRIPTION.
 * `ec_diffnet_test()`: a differential network without a Gaussian assumption, following the
   permutation route of NetCoMi's `diffnet` and the max-over-edges statistic of the Network
   Comparison Test, with exchangeability blocks in the sense of Winkler et al. (2014). The edge statistic is

@@ -9,14 +9,18 @@ Description: Reference distributions that are exact at every sample size, obtain
     approximation. Two forms of conditioning are supplied. For a two-way table the row and column totals are
     sufficient for the marginal parameters, so conditioning on both margins leaves the Fisher-Yates
     law, sampled here exactly by random permutation of the column labels; statistics include
-    Goodman's linear-by-linear association and, for nominal rows against an ordinal column, the
+    the linear-by-linear association of Goodman (1979)
+    <doi:10.1080/01621459.1979.10481650> and, for nominal rows against an ordinal column, the
     dispersion of the row mean scores, whose components are the group contrasts themselves. A
     two-table form conditions further on the total score to cancel a common association parameter,
     giving a nuisance-free test that two tables share it. For a linear model under a null in which
     the tested structure is absent, a statistic invariant to the coefficients and the error scale
     depends on the data only through the residual direction, which is uniform on the sphere of the
     residual space; the reference stays exact when the statistic is maximised over candidate
-    structures, and so remains valid after a spatial weight matrix has been chosen by fit. Every
+    structures, and so remains valid after a spatial weight matrix has been chosen by fit. Permutation tests for a
+    battery of categorical items and for differences between correlation networks follow the
+    nonparametric combination of Pesarin and Salmaso (2010) <doi:10.1002/9780470689516>, with
+    exchangeability blocks as in Winkler et al. (2014) <doi:10.1016/j.neuroimage.2014.01.060>. Every
     replicate draws from its own stream, so results do not depend on the thread count. The same C
     sources back the 'Python' package 'exactcond'.
 URL: https://github.com/mtloots/exactcond
@@ -26,5 +30,9 @@ Encoding: UTF-8
 Imports: stats
 NeedsCompilation: yes
 Config/testthat/edition: 3
-Suggests: testthat (>= 3.0.0)
+Suggests:
+    knitr,
+    rmarkdown,
+    testthat (>= 3.0.0)
+VignetteBuilder: knitr
 Config/roxygen2/version: 8.0.0
