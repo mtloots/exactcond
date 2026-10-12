@@ -1,21 +1,34 @@
-"""Build the shared C back-end at install time, so no compiler is needed at import."""
-import os, glob, sysconfig
-from setuptools import setup
-from setuptools.command.build_py import build_py
-from distutils.ccompiler import new_compiler
+"""Build the shared exact-conditional C back-end at INSTALL time, as an Extension.
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-SRC = os.path.join(HERE, "src", "exactcond")
+The earlier setup.py subclassed setuptools' build_py and compiled with distutils' new_compiler.
+distutils is gone from Python 3.12 and current setuptools no longer supports that subclassing, so
+pip failed with "type object 'build_py' has no attribute '__getattr__'" on every platform (12 Oct
+2026). Declaring the sources as an Extension hands the compile to pip, inside build isolation, and
+lets real platform wheels be built, after which users need no compiler at all. Same pattern as
+arcstat-py.
 
-class Build(build_py):
-    def run(self):
-        srcs = sorted(f for f in glob.glob(os.path.join(SRC, "*.c"))
-                      if os.path.basename(f) != "init.c")
-        if srcs:
-            cc = new_compiler()
-            objs = cc.compile(srcs, output_dir=self.build_temp,
-                              extra_preargs=["-O2", "-fPIC"])
-            cc.link_shared_lib(objs, "_libexactcond", output_dir=SRC, libraries=["m"])
-        super().run()
+init.c is excluded deliberately: it is R's symbol-registration glue and references R headers.
+"""
+import glob
+import os
 
-setup(cmdclass={"build_py": Build}, package_data={"exactcond": ["*.c", "*.so", "*.dylib"]})
+from setuptools import Extension, setup
+
+# Paths must be RELATIVE to setup.py: setuptools rejects absolute source paths.
+SRC = os.path.join("src", "exactcond")
+
+sources = sorted(
+    s for s in glob.glob(os.path.join(SRC, "*.c"))
+    if os.path.basename(s) != "init.c"
+)
+
+# Leading underscore: it carries no PyInit and is loaded with ctypes.CDLL by _core.py.
+ext = Extension(
+    name="exactcond._libexactcond",
+    sources=sources,
+    include_dirs=[SRC],
+    libraries=[] if os.name == "nt" else ["m"],
+    optional=False,
+)
+
+setup(ext_modules=[ext])
