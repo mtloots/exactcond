@@ -8,7 +8,8 @@ permutation test for a battery of categorical items), with tests for both.
 ## Test environments
 
 * local macOS (arm64), R 4.5, `R CMD check --as-cran`: 0 errors, 0 warnings, 2 notes.
-* win-builder R-devel: see the result recorded below once it returns.
+* win-builder R-devel (2026-10-10 r90659 ucrt): 0 errors, 0 warnings, 2 notes: the new-submission
+  note, and a backup file at the top level, which is now excluded through .Rbuildignore.
 * GitHub Actions: Linux (R devel, release, oldrel-1), macOS and Windows (R release).
 
 ## R CMD check results
