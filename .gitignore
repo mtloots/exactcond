@@ -1,8 +1,18 @@
+__pycache__/
+.pytest_cache/
+.RData
+.Rhistory
+*.bak*
+*.dylib
+*.egg-info/
+*.o
+*.pyc
+*.Rcheck/
+*.so
+*.tar.gz
 # build artefacts: the shared library and objects are rebuilt from src on every install
+build/
+dist/
+src/*.dll
 src/*.o
 src/*.so
-src/*.dll
-*.tar.gz
-*.Rcheck/
-.Rhistory
-.RData

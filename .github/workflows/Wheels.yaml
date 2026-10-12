@@ -1,0 +1,108 @@
+# Build binary wheels for the two Python fronts.
+#
+# MANUAL ONLY (workflow_dispatch). These repositories are private and Actions minutes are metered
+# -- Linux counts 1x but macOS counts 10x -- so this does not run on every push. Trigger it before
+# a PyPI release and let it produce the artefacts; the sdist alone would work but forces every
+# user to have a compiler.
+#
+# Linux and macOS only, matching the packages' own classifiers. The C carries #pragma omp in three
+# files but the Python build does NOT pass -fopenmp, so those loops run serially here and there is
+# no libomp to bundle -- which is why this needs no delocate/auditwheel gymnastics beyond the
+# defaults. Windows is untested and deliberately not claimed.
+name: wheels
+
+on:
+  workflow_dispatch:
+    inputs:
+      package:
+        description: which front to build
+        required: true
+        default: exactcond-py
+        type: choice
+        options: [exactcond-py]
+      publish:
+        description: publish to PyPI after building (trusted publishing, no token)
+        required: true
+        default: false
+        type: boolean
+
+permissions: read-all
+
+jobs:
+  build:
+    name: ${{ matrix.pkg }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        pkg: [exactcond-py]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Skip if this front was not requested
+        id: want
+        run: |
+          if [ "${{ inputs.package }}" = "${{ matrix.pkg }}" ]; then
+            echo "run=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=no" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-python@v5
+        if: steps.want.outputs.run == 'yes'
+        with:
+          python-version: '3.12'
+
+      - name: Build wheels
+        if: steps.want.outputs.run == 'yes'
+        uses: pypa/cibuildwheel@v2.21.3
+        with:
+          package-dir: ${{ matrix.pkg }}
+        env:
+          # Four current CPython versions. The default set reaches much further back and each
+          # extra one is a full compile of twelve C files on metered time.
+          CIBW_BUILD: cp310-* cp311-* cp312-* cp313-*
+          CIBW_SKIP: "*-musllinux_* *_i686"
+          CIBW_ARCHS_LINUX: x86_64
+          CIBW_ARCHS_MACOS: arm64
+          # Prove the wheel works without a compiler present, which is the whole point of
+          # shipping one. The import alone would fail if the extension were missing.
+          CIBW_TEST_REQUIRES: pytest
+          CIBW_TEST_COMMAND: python -c "import exactcond as m; print(m.__name__, 'imported from a wheel with no build step')"
+
+      - name: Build sdist
+        if: steps.want.outputs.run == 'yes' && matrix.os == 'ubuntu-latest'
+        run: |
+          python -m pip install --upgrade build
+          python -m build --sdist --outdir wheelhouse ${{ matrix.pkg }}
+
+      - uses: actions/upload-artifact@v4
+        if: steps.want.outputs.run == 'yes'
+        with:
+          name: dist-${{ matrix.pkg }}-${{ matrix.os }}
+          path: ./wheelhouse/*
+
+  # Publishing uses PyPI TRUSTED PUBLISHING: GitHub mints a short-lived OIDC token and PyPI
+  # verifies it against a publisher entry naming this repository and this workflow FILE. There is
+  # no API token anywhere -- nothing to store, nothing to leak, nothing to rotate.
+  #
+  # One job per package because each PyPI project needs its own publisher entry on PyPI's side.
+  publish-exactcond:
+    name: publish exactcond to PyPI
+    needs: build
+    if: inputs.publish
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write          # trusted publishing; needs a pending publisher on PyPI first
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: dist-exactcond-py-*
+          path: dist
+          merge-multiple: true
+      - name: What is about to be published
+        run: ls -l dist
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist

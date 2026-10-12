@@ -190,6 +190,188 @@ ec_sphere_maxquad <- function(M, A, B = 20000L, seed = 1L) {
      as.integer(length(A)), as.integer(B), as.integer(seed), out = double(B))$out
 }
 
+#' One exact test for a battery of items across groups
+#'
+#' Several categorical items are recorded on the same respondents, who fall into groups, and the
+#' question is whether ANY item differs across the groups. Rather than test each item and pay a
+#' multiplicity correction, one statistic is formed, the sum or the maximum over items of a
+#' per-item statistic, and referred to the law obtained by permuting the group labels. That law
+#' conditions on every item's margin and on the group sizes, so it is exact conditional in the
+#' sense of \code{\link{ec_rc_test}}, and it gives ONE p-value for the whole battery. The per-item
+#' statistics are referred to the same permutations, which supplies the unadjusted per-item
+#' p-values a closed procedure uses once the omnibus has rejected.
+#'
+#' @param x a matrix or data frame of items, one column per item, each a factor or integer
+#'   coded from zero (or from one, which is shifted), with respondents in rows.
+#' @param group a factor or vector giving each respondent's group.
+#' @param cluster an optional factor or vector giving each respondent's cluster, every cluster
+#'   lying inside one group. When supplied the labels are permuted across clusters, each cluster
+#'   keeping its members, which is the exact treatment of intra-cluster correlation such as an
+#'   interviewer or fieldworker effect.
+#' @param stat \code{"pearson"}, the Pearson statistic of each item's group-by-level table, which
+#'   standardises each item by its own variance and is the natural choice for the sum; or
+#'   \code{"dispersion"}, the dispersion of the group mean scores with scores \code{0:(k-1)},
+#'   the Kruskal-Wallis analogue on the score scale.
+#' @param B number of permutations.
+#' @param seed integer seed; each permutation uses its own stream, so the result does not depend
+#'   on the thread count.
+#' @return A list with \code{sum} and \code{max}, each holding the observed statistic, the exact
+#'   p-value, its mid-p companion, a Wilson interval for the Monte Carlo error and the largest
+#'   null draw; \code{items}, a data frame of the per-item statistics and unadjusted per-item
+#'   p-values from the same permutations; and the sizes of the groups and, if given, the number
+#'   of clusters.
+#' @details The sum has power against many items moving a little; the maximum against one item
+#'   moving a lot, and it is the one that matches or beats a Bonferroni-corrected battery while
+#'   holding its size. With one binary item and no clusters, \code{"pearson"} is the exact test of
+#'   the two-way table and agrees with \code{\link{ec_rc_test}} in distribution.
+#' @examples
+#' set.seed(1)
+#' g <- rep(c("a", "b", "c"), c(30, 40, 30))
+#' x <- cbind(rbinom(100, 1, 0.9), rbinom(100, 1, 0.95), rbinom(100, 1, ifelse(g == "c", 0.7, 0.9)))
+#' ec_multi_test(x, g, B = 2000, seed = 1)
+#' @export
+ec_multi_test <- function(x, group, cluster = NULL, stat = c("pearson", "dispersion"),
+                          B = 20000L, seed = 1L) {
+  stat <- match.arg(stat)
+  x <- as.data.frame(x); n <- nrow(x); m <- ncol(x)
+  if (m < 1) stop("x must hold at least one item")
+  if (length(group) != n) stop("group must have one entry per row of x")
+  cols <- lapply(x, function(v) {
+    if (is.factor(v)) v <- as.integer(v) - 1L else if (is.logical(v)) v <- as.integer(v)
+    else { v <- as.integer(v); if (min(v, na.rm = TRUE) == 1L) v <- v - 1L }
+    v })
+  if (any(vapply(cols, function(v) any(is.na(v)), TRUE))) stop("x must have no missing values")
+  k <- vapply(cols, function(v) max(v) + 1L, 1L)
+  if (any(vapply(cols, min, 1L) < 0L)) stop("items must be coded from zero or one")
+  group <- as.factor(group); grp <- as.integer(group) - 1L; g <- nlevels(group)
+  if (g < 2) stop("group must have at least two levels")
+  if (is.null(cluster)) { cl <- integer(n); ncl <- 0L } else {
+    if (length(cluster) != n) stop("cluster must have one entry per row of x")
+    cluster <- as.factor(cluster)
+    if (any(tapply(grp, cluster, function(z) length(unique(z))) > 1L))
+      stop("every cluster must lie inside one group")
+    cl <- as.integer(cluster) - 1L; ncl <- nlevels(cluster) }
+  z <- .C("C_ec_multi", as.integer(unlist(cols)), as.integer(n), as.integer(m), as.integer(g),
+          grp, as.integer(k), as.integer(cl), as.integer(ncl),
+          as.integer(c(pearson = 0L, dispersion = 1L)[[stat]]), as.integer(B), as.integer(seed),
+          out = double(12), item_stat = double(m), item_p = double(m))
+  o <- z$out   # obs_sum, obs_max, sum: p midp lo hi, max: p midp lo hi, largest null sum, largest null max
+  part <- function(i, j, mx) list(statistic = o[i], p.value = o[j], midp = o[j + 1],
+                                  mc.lower = o[j + 2], mc.upper = o[j + 3], max_null = mx)
+  structure(list(sum = part(1, 3, o[11]), max = part(2, 7, o[12]),
+                 items = data.frame(item = names(x), statistic = z$item_stat, p.value = z$item_p),
+                 n = as.vector(table(group)), clusters = ncl, B = B, stat = stat,
+                 exchangeable = if (ncl > 0) "clusters" else "respondents"),
+            class = "ec_multi")
+}
+
+#' @export
+print.ec_multi <- function(x, ...) {
+  cat(sprintf("One exact test for %d items across %d groups, %s exchangeable, %s statistic\n",
+              nrow(x$items), length(x$n), x$exchangeable, x$stat))
+  fl <- 1 / (x$B + 1)
+  for (nm in c("sum", "max")) { r <- x[[nm]]
+    if (r$p.value <= fl + 1e-12)
+      cat(sprintf("%-4s %.6g   p < %.3g (resolution floor); largest null draw %.6g\n",
+                  nm, r$statistic, fl, r$max_null))
+    else
+      cat(sprintf("%-4s %.6g   p = %.4g   mid-p = %.4g   Monte Carlo 95%% interval [%.4g, %.4g]\n",
+                  nm, r$statistic, r$p.value, r$midp, r$mc.lower, r$mc.upper)) }
+  invisible(x)
+}
+
+#' A differential network without a Gaussian assumption
+#'
+#' Which pairs of variables are associated differently in two or more groups, tested without
+#' assuming the data are Gaussian. The edge statistic is the heterogeneity of the Fisher-transformed
+#' correlations across groups, \eqn{\sum_a (n_a - 3)(z_a - \bar z)^2}, the same quantity the Gaussian
+#' theory uses; what changes is the reference. Instead of a chi-square that holds only under
+#' normality, the statistic is referred to the law obtained by permuting the group labels, which
+#' conditions on the observed data and the group sizes and is therefore exact whatever the marginals
+#' are. With \code{rank = TRUE} the correlations are Spearman's, so the whole procedure is
+#' distribution-free.
+#'
+#' @param x a matrix or data frame, variables in columns, respondents in rows.
+#' @param group a factor or vector giving each respondent's group.
+#' @param cluster an optional cluster per respondent, every cluster inside one group; when given the
+#'   labels are permuted across clusters, each keeping its members.
+#' @param rank replace each variable by its ranks, average ties, before correlating. The default,
+#'   and what makes the test distribution-free; set \code{FALSE} to use the values as scores, which
+#'   is what an ordinal coding already is.
+#' @param B number of permutations.
+#' @param seed integer seed; each permutation has its own stream.
+#' @return A list with \code{sum} and \code{max} over the \eqn{p(p-1)/2} edges, each holding the
+#'   observed statistic, the exact p-value, its mid-p companion, a Wilson interval and the largest
+#'   null draw; and \code{edges}, a data frame of every edge with its statistic and the unadjusted
+#'   per-edge p-value from the same permutations.
+#' @details A network has \eqn{p(p-1)/2} edges, so testing them one at a time needs a correction
+#'   that costs most of the power. The same permutations give ONE statistic for the whole network,
+#'   the sum of the edge statistics when many edges differ a little and the maximum when one edge
+#'   differs a lot, hence ONE p-value for "is the network different at all"; the per-edge p-values
+#'   are then a closed follow-up, valid without further correction once the omnibus has rejected.
+#'   Nothing is corrected because nothing is repeated.
+#' @examples
+#' set.seed(1)
+#' n <- 120; p <- 5
+#' g <- rep(c("a", "b"), each = n / 2)
+#' z <- matrix(rnorm(n * p), n)
+#' z[g == "b", 2] <- 0.8 * z[g == "b", 1] + 0.6 * z[g == "b", 2]   # one edge differs
+#' ec_diffnet_test(z, g, B = 999, seed = 1)
+#' @export
+ec_diffnet_test <- function(x, group, cluster = NULL, rank = TRUE, B = 20000L, seed = 1L) {
+  x <- as.matrix(x); n <- nrow(x); p <- ncol(x)
+  if (p < 2) stop("x must hold at least two variables")
+  if (length(group) != n) stop("group must have one entry per row of x")
+  if (any(is.na(x))) stop("x must have no missing values")
+  storage.mode(x) <- "double"
+  if (isTRUE(rank)) x <- apply(x, 2, function(v) rank(v, ties.method = "average"))
+  group <- as.factor(group); grp <- as.integer(group) - 1L; g <- nlevels(group)
+  if (g < 2) stop("group must have at least two levels")
+  if (min(table(group)) < 4) stop("every group needs at least four respondents")
+  if (is.null(cluster)) { cl <- integer(n); ncl <- 0L } else {
+    if (length(cluster) != n) stop("cluster must have one entry per row of x")
+    cluster <- as.factor(cluster)
+    if (any(tapply(grp, cluster, function(z) length(unique(z))) > 1L))
+      stop("every cluster must lie inside one group")
+    cl <- as.integer(cluster) - 1L; ncl <- nlevels(cluster) }
+  m <- p * (p - 1L) / 2L
+  z <- .C("C_ec_diffnet", as.double(x), as.integer(n), as.integer(p), as.integer(g), grp,
+          as.integer(cl), as.integer(ncl), as.integer(B), as.integer(seed),
+          out = double(12), edge_stat = double(m), edge_p = double(m))
+  o <- z$out
+  part <- function(i, j, mx) list(statistic = o[i], p.value = o[j], midp = o[j + 1],
+                                  mc.lower = o[j + 2], mc.upper = o[j + 3], max_null = mx)
+  nm <- colnames(x); if (is.null(nm)) nm <- paste0("V", seq_len(p))
+  ij <- which(upper.tri(matrix(0, p, p)), arr.ind = TRUE)
+  ij <- ij[order(ij[, "row"], ij[, "col"]), , drop = FALSE]
+  structure(list(sum = part(1, 3, o[11]), max = part(2, 7, o[12]),
+                 edges = data.frame(from = nm[ij[, "row"]], to = nm[ij[, "col"]],
+                                    statistic = z$edge_stat, p.value = z$edge_p),
+                 n = as.vector(table(group)), clusters = ncl, B = B, ranked = isTRUE(rank),
+                 exchangeable = if (ncl > 0) "clusters" else "respondents"),
+            class = "ec_diffnet")
+}
+
+#' @export
+print.ec_diffnet <- function(x, ...) {
+  cat(sprintf("Differential network over %d edges, %d groups, %s exchangeable%s\n",
+              nrow(x$edges), length(x$n), x$exchangeable,
+              if (x$ranked) ", ranks" else ", raw scores"))
+  fl <- 1 / (x$B + 1)
+  for (nm in c("sum", "max")) { r <- x[[nm]]
+    if (r$p.value <= fl + 1e-12)
+      cat(sprintf("%-4s %.6g   p < %.3g (resolution floor); largest null draw %.6g\n",
+                  nm, r$statistic, fl, r$max_null))
+    else
+      cat(sprintf("%-4s %.6g   p = %.4g   mid-p = %.4g   Monte Carlo 95%% interval [%.4g, %.4g]\n",
+                  nm, r$statistic, r$p.value, r$midp, r$mc.lower, r$mc.upper)) }
+  e <- x$edges[order(x$edges$p.value), ][seq_len(min(5L, nrow(x$edges))), ]
+  cat("strongest edges:\n")
+  for (i in seq_len(nrow(e)))
+    cat(sprintf("  %s -- %s   statistic %.4g   p = %.4g\n", e$from[i], e$to[i], e$statistic[i], e$p.value[i]))
+  invisible(x)
+}
+
 #' Tail probabilities from an observed value and a null sample
 #'
 #' @param obs the observed statistic.

@@ -194,6 +194,265 @@ void C_ec_rc_test(const int *x, const int *r, const int *c, const int *B, const 
   free(rows); free(cols); free(nul);
 }
 
+/* ------------------------------------------- many items, one group label, ONE test
+ * THE MULTI-ITEM OMNIBUS. m categorical items are recorded on n respondents who fall into g
+ * groups. The question "does ANY item differ across the groups" is answered by one statistic,
+ * the SUM or the MAXIMUM over items of a per-item test statistic, referred to the law obtained
+ * by permuting the group labels. That law conditions on every item's margin and on the group
+ * sizes, so it is exact conditional in the same sense as the r x c tests above, and it yields
+ * ONE p-value for all m items: there is no multiplicity to correct because there is no
+ * multiplicity. The per-item statistics are referred to the SAME permutations, which gives the
+ * unadjusted per-item p-values a closed procedure uses after the omnibus has rejected.
+ *
+ * Two exchangeabilities are offered. Respondents exchangeable (cl absent): the labels are
+ * permuted across respondents, which is what Fisher's test assumes. Clusters exchangeable (cl
+ * given, every cluster inside one group): the labels are permuted across CLUSTERS, each cluster
+ * keeping its members, which is the exact answer to intra-cluster correlation -- an interviewer
+ * or a fieldworker team -- and costs nothing but the number of clusters as the effective sample.
+ *
+ * Statistics per item: which = 0 Pearson X^2 on the g x k_j table; which = 1 the score dispersion
+ * sum_a n_a (vbar_a - vbar)^2 with scores 0..k_j-1, the Kruskal-Wallis analogue built from the
+ * group means themselves. Pearson standardises each item by its own variance, which is what one
+ * wants when SUMMING across items of different prevalence; the dispersion keeps the items on the
+ * score scale, which is what one wants when the question is about a common shift.
+ *
+ * x: n * m ints, item-major (column-major), values 0..k_j - 1.  grp: n ints in 0..g-1.
+ * cl: n ints in 0..ncl-1, ignored when ncl == 0.  out: 12 doubles, obs_sum, obs_max, then for
+ * the sum p, midp, lo, hi, then the same four for the max, then the largest null sum and the
+ * largest null max.  item_stat: m observed per-item statistics.  item_p: m per-item p-values. */
+static double ec_item_stat(const int *xj, const int *grp, int n, int g, int k,
+                           const int *ng, int *cnt, int which){
+  int a, l; double N = (double) n, T = 0.0;
+  for (a = 0; a < g * k; a++) cnt[a] = 0;
+  for (a = 0; a < n; a++) cnt[grp[a] * k + xj[a]]++;
+  if (which == 0){
+    for (l = 0; l < k; l++){
+      double cs = 0.0; for (a = 0; a < g; a++) cs += cnt[a * k + l];
+      if (cs <= 0.0) continue;
+      for (a = 0; a < g; a++){
+        double e = ng[a] * cs / N; if (e <= 0.0) continue;
+        double d = cnt[a * k + l] - e; T += d * d / e; }
+    }
+    return T;
+  }
+  { double gm = 0.0;
+    for (a = 0; a < g; a++) for (l = 0; l < k; l++) gm += l * (double) cnt[a * k + l];
+    gm /= N;
+    for (a = 0; a < g; a++){ double s = 0.0;
+      if (ng[a] <= 0) continue;
+      for (l = 0; l < k; l++) s += l * (double) cnt[a * k + l];
+      s = s / ng[a] - gm; T += ng[a] * s * s; }
+    return T; }
+}
+static void ec_multi_all(const int *x, const int *grp, int n, int m, int g, const int *k,
+                         int kmax, const int *ng, int *cnt, int which, double *st){
+  int j; for (j = 0; j < m; j++) st[j] = ec_item_stat(x + (size_t) j * n, grp, n, g, k[j], ng, cnt, which);
+  (void) kmax;
+}
+void C_ec_multi(const int *x, const int *n_, const int *m_, const int *g_, const int *grp,
+                const int *k, const int *cl, const int *ncl_, const int *which, const int *B,
+                const int *seed, double *out, double *item_stat, double *item_p){
+  int n = *n_, m = *m_, g = *g_, ncl = *ncl_, nb = *B, w = *which, i, j, kmax = 0;
+  int *ng = (int*) calloc((size_t) g, sizeof(int));
+  int *clg = NULL;                                   /* group of each cluster */
+  double *nsum = (double*) malloc((size_t) nb * sizeof(double));
+  double *nmax = (double*) malloc((size_t) nb * sizeof(double));
+  int *ge_item = (int*) calloc((size_t) m, sizeof(int));
+  double t4[4];
+  if (!ng || !nsum || !nmax || !ge_item){ free(ng); free(nsum); free(nmax); free(ge_item); return; }
+  for (j = 0; j < m; j++) if (k[j] > kmax) kmax = k[j];
+  for (i = 0; i < n; i++) ng[grp[i]]++;
+  { int *cnt = (int*) malloc((size_t)(g * kmax) * sizeof(int));
+    if (!cnt){ free(ng); free(nsum); free(nmax); free(ge_item); return; }
+    ec_multi_all(x, grp, n, m, g, k, kmax, ng, cnt, w, item_stat);
+    free(cnt); }
+  out[0] = 0.0; out[1] = 0.0;
+  for (j = 0; j < m; j++){ out[0] += item_stat[j]; if (j == 0 || item_stat[j] > out[1]) out[1] = item_stat[j]; }
+  if (ncl > 0){
+    clg = (int*) malloc((size_t) ncl * sizeof(int));
+    if (!clg){ free(ng); free(nsum); free(nmax); free(ge_item); return; }
+    for (i = 0; i < ncl; i++) clg[i] = -1;
+    for (i = 0; i < n; i++) clg[cl[i]] = grp[i];   /* the R front has checked nesting */
+  }
+#ifdef _OPENMP
+#pragma omp parallel for schedule(static)
+#endif
+  for (i = 0; i < nb; i++){
+    unsigned long long s = ec_seed((unsigned long long) *seed, i);
+    int *pg = (int*) malloc((size_t) n * sizeof(int));
+    int *cnt = (int*) malloc((size_t)(g * kmax) * sizeof(int));
+    int *pn = (int*) calloc((size_t) g, sizeof(int));
+    double *st = (double*) malloc((size_t) m * sizeof(double));
+    int a; double sm = 0.0, mx = 0.0;
+    if (!pg || !cnt || !pn || !st){ free(pg); free(cnt); free(pn); free(st); nsum[i] = 0.0; nmax[i] = 0.0; continue; }
+    if (ncl > 0){
+      int *pc = (int*) malloc((size_t) ncl * sizeof(int));
+      if (!pc){ free(pg); free(cnt); free(pn); free(st); nsum[i] = 0.0; nmax[i] = 0.0; continue; }
+      memcpy(pc, clg, (size_t) ncl * sizeof(int));
+      ec_shuffle(pc, ncl, &s);                       /* permute labels across clusters */
+      for (a = 0; a < n; a++) pg[a] = pc[cl[a]];
+      free(pc);
+    } else {
+      memcpy(pg, grp, (size_t) n * sizeof(int));
+      ec_shuffle(pg, n, &s);                         /* permute labels across respondents */
+    }
+    for (a = 0; a < n; a++) pn[pg[a]]++;
+    ec_multi_all(x, pg, n, m, g, k, kmax, pn, cnt, w, st);
+    for (a = 0; a < m; a++){ sm += st[a]; if (a == 0 || st[a] > mx) mx = st[a]; }
+    nsum[i] = sm; nmax[i] = mx;
+#ifdef _OPENMP
+#pragma omp critical
+#endif
+    { for (a = 0; a < m; a++) if (st[a] >= item_stat[a] - 1e-12) ge_item[a]++; }
+    free(pg); free(cnt); free(pn); free(st);
+  }
+  ec_tail(out[0], nsum, nb, t4); out[2] = t4[0]; out[3] = t4[1]; out[4] = t4[2]; out[5] = t4[3];
+  ec_tail(out[1], nmax, nb, t4); out[6] = t4[0]; out[7] = t4[1]; out[8] = t4[2]; out[9] = t4[3];
+  out[10] = nsum[0]; out[11] = nmax[0];
+  for (i = 1; i < nb; i++){ if (nsum[i] > out[10]) out[10] = nsum[i]; if (nmax[i] > out[11]) out[11] = nmax[i]; }
+  for (j = 0; j < m; j++) item_p[j] = (1.0 + ge_item[j]) / (nb + 1.0);
+  free(ng); free(clg); free(nsum); free(nmax); free(ge_item);
+}
+
+/* --------------------------------------- a DIFFERENTIAL NETWORK without a Gaussian
+ * THE GAP THIS FILLS. A differential network asks which pairs of variables are associated
+ * differently in two groups. The established route estimates a precision matrix per group and
+ * compares partial correlations through a Fisher-z difference, whose null is chi-square BECAUSE
+ * the data are assumed Gaussian; for counts or ordinal survey items that assumption is false, and
+ * the usual repair is to make the data Gaussian first (a latent field, a whitening step) rather
+ * than to drop the assumption.
+ *
+ * Dropping it costs nothing here. Take any edge statistic that measures how far the groups'
+ * associations differ -- this uses the heterogeneity of the Fisher-transformed score correlations,
+ * sum_a (n_a - 3)(z_a - zbar)^2, which is the same quantity the Gaussian theory uses -- and refer
+ * it not to a chi-square but to the law obtained by PERMUTING THE GROUP LABELS. That law conditions
+ * on the observed data and on the group sizes, so it is exact whatever the marginal distributions
+ * are: no Gaussianity, no large sample, no correction for ties. What the Gaussian assumption bought
+ * was a closed-form null; a permutation supplies the same null and nothing else changes.
+ *
+ * MULTIPLICITY, which is the real obstacle in a network. There are p(p-1)/2 edges, so a per-edge
+ * test needs a correction that costs most of the power. The same permutations give ONE statistic
+ * over the whole network -- the SUM of the edge statistics (many edges differing a little) or the
+ * MAXIMUM (one edge differing a lot) -- and so ONE p-value for "is the network different at all",
+ * with the per-edge p-values from those same permutations available for a closed follow-up once it
+ * has rejected. Nothing is corrected because nothing is repeated.
+ *
+ * CLUSTERS. If respondents sit in clusters, the labels are permuted across CLUSTERS, each keeping
+ * its members, exactly as in C_ec_multi. That is the exact treatment of an interviewer effect.
+ *
+ * x: n * p doubles, variable-major: ranks for continuous variables (which makes the correlation
+ * Spearman's and the whole procedure distribution-free), integer codes for ordinal ones, 0/1 for
+ * binary. An affine rescoring changes nothing. out: 12 doubles as in C_ec_multi. edge_stat, edge_p: m each,
+ * m = p(p-1)/2, in the order (0,1), (0,2), ..., (0,p-1), (1,2), ... */
+static void ec_edge_all(const double *x, const int *grp, int n, int p, int g, int m,
+                        double *su, double *suu, double *suv, double *ng, double *st){
+  int i, j, l, a, e;
+  for (a = 0; a < g; a++){ ng[a] = 0.0;
+    for (j = 0; j < p; j++){ su[a * p + j] = 0.0; suu[a * p + j] = 0.0; }
+    for (e = 0; e < m; e++) suv[a * m + e] = 0.0; }
+  for (i = 0; i < n; i++){
+    a = grp[i]; ng[a] += 1.0;
+    { double *sua = su + a * p, *suua = suu + a * p, *suva = suv + a * m;
+      e = 0;
+      for (j = 0; j < p; j++){
+        double xj = x[(size_t) j * n + i];
+        sua[j] += xj; suua[j] += xj * xj;
+        for (l = j + 1; l < p; l++) suva[e++] += xj * x[(size_t) l * n + i];
+      } }
+  }
+  e = 0;
+  for (j = 0; j < p; j++) for (l = j + 1; l < p; l++){
+    double zb = 0.0, w = 0.0, T = 0.0;
+    double zs[64]; double ws[64]; int a2, gg = g < 64 ? g : 64;
+    for (a = 0; a < gg; a++){
+      double na = ng[a], r, den, z;
+      double s1 = su[a * p + j], s2 = su[a * p + l];
+      double q1 = suu[a * p + j] - s1 * s1 / (na > 0 ? na : 1.0);
+      double q2 = suu[a * p + l] - s2 * s2 / (na > 0 ? na : 1.0);
+      double c12 = suv[a * m + e] - s1 * s2 / (na > 0 ? na : 1.0);
+      den = sqrt(q1 * q2);
+      r = (na > 3.0 && den > 1e-12) ? c12 / den : 0.0;
+      if (r > 0.999999) r = 0.999999; if (r < -0.999999) r = -0.999999;
+      z = 0.5 * log((1.0 + r) / (1.0 - r));
+      zs[a] = z; ws[a] = na > 3.0 ? na - 3.0 : 0.0;
+      zb += ws[a] * z; w += ws[a];
+    }
+    if (w > 0.0){ zb /= w;
+      for (a2 = 0; a2 < gg; a2++){ double d = zs[a2] - zb; T += ws[a2] * d * d; } }
+    st[e] = T; e++;
+  }
+}
+void C_ec_diffnet(const double *x, const int *n_, const int *p_, const int *g_, const int *grp,
+                  const int *cl, const int *ncl_, const int *B, const int *seed,
+                  double *out, double *edge_stat, double *edge_p){
+  int n = *n_, p = *p_, g = *g_, ncl = *ncl_, nb = *B, i, j, m = p * (p - 1) / 2;
+  int *clg = NULL;
+  double *nsum = (double*) malloc((size_t) nb * sizeof(double));
+  double *nmax = (double*) malloc((size_t) nb * sizeof(double));
+  int *ge_edge = (int*) calloc((size_t) m, sizeof(int));
+  double t4[4];
+  if (p < 2 || g < 2 || g > 64){ free(nsum); free(nmax); free(ge_edge); return; }
+  if (!nsum || !nmax || !ge_edge){ free(nsum); free(nmax); free(ge_edge); return; }
+  { double *su = (double*) malloc((size_t)(g * p) * sizeof(double));
+    double *suu = (double*) malloc((size_t)(g * p) * sizeof(double));
+    double *suv = (double*) malloc((size_t)(g * m) * sizeof(double));
+    double *ng = (double*) malloc((size_t) g * sizeof(double));
+    if (!su || !suu || !suv || !ng){ free(su); free(suu); free(suv); free(ng);
+      free(nsum); free(nmax); free(ge_edge); return; }
+    ec_edge_all(x, grp, n, p, g, m, su, suu, suv, ng, edge_stat);
+    free(su); free(suu); free(suv); free(ng); }
+  out[0] = 0.0; out[1] = 0.0;
+  for (j = 0; j < m; j++){ out[0] += edge_stat[j]; if (j == 0 || edge_stat[j] > out[1]) out[1] = edge_stat[j]; }
+  if (ncl > 0){
+    clg = (int*) malloc((size_t) ncl * sizeof(int));
+    if (!clg){ free(nsum); free(nmax); free(ge_edge); return; }
+    for (i = 0; i < ncl; i++) clg[i] = -1;
+    for (i = 0; i < n; i++) clg[cl[i]] = grp[i];
+  }
+#ifdef _OPENMP
+#pragma omp parallel for schedule(static)
+#endif
+  for (i = 0; i < nb; i++){
+    unsigned long long s = ec_seed((unsigned long long) *seed, i);
+    int *pg = (int*) malloc((size_t) n * sizeof(int));
+    double *su = (double*) malloc((size_t)(g * p) * sizeof(double));
+    double *suu = (double*) malloc((size_t)(g * p) * sizeof(double));
+    double *suv = (double*) malloc((size_t)(g * m) * sizeof(double));
+    double *ng = (double*) malloc((size_t) g * sizeof(double));
+    double *st = (double*) malloc((size_t) m * sizeof(double));
+    int a; double sm = 0.0, mx = 0.0;
+    if (!pg || !su || !suu || !suv || !ng || !st){
+      free(pg); free(su); free(suu); free(suv); free(ng); free(st);
+      nsum[i] = 0.0; nmax[i] = 0.0; continue; }
+    if (ncl > 0){
+      int *pc = (int*) malloc((size_t) ncl * sizeof(int));
+      if (!pc){ free(pg); free(su); free(suu); free(suv); free(ng); free(st);
+        nsum[i] = 0.0; nmax[i] = 0.0; continue; }
+      memcpy(pc, clg, (size_t) ncl * sizeof(int));
+      ec_shuffle(pc, ncl, &s);
+      for (a = 0; a < n; a++) pg[a] = pc[cl[a]];
+      free(pc);
+    } else {
+      memcpy(pg, grp, (size_t) n * sizeof(int));
+      ec_shuffle(pg, n, &s);
+    }
+    ec_edge_all(x, pg, n, p, g, m, su, suu, suv, ng, st);
+    for (a = 0; a < m; a++){ sm += st[a]; if (a == 0 || st[a] > mx) mx = st[a]; }
+    nsum[i] = sm; nmax[i] = mx;
+#ifdef _OPENMP
+#pragma omp critical
+#endif
+    { for (a = 0; a < m; a++) if (st[a] >= edge_stat[a] - 1e-12) ge_edge[a]++; }
+    free(pg); free(su); free(suu); free(suv); free(ng); free(st);
+  }
+  ec_tail(out[0], nsum, nb, t4); out[2] = t4[0]; out[3] = t4[1]; out[4] = t4[2]; out[5] = t4[3];
+  ec_tail(out[1], nmax, nb, t4); out[6] = t4[0]; out[7] = t4[1]; out[8] = t4[2]; out[9] = t4[3];
+  out[10] = nsum[0]; out[11] = nmax[0];
+  for (i = 1; i < nb; i++){ if (nsum[i] > out[10]) out[10] = nsum[i]; if (nmax[i] > out[11]) out[11] = nmax[i]; }
+  for (j = 0; j < m; j++) edge_p[j] = (1.0 + ge_edge[j]) / (nb + 1.0);
+  free(clg); free(nsum); free(nmax); free(ge_edge);
+}
+
 /* ------------------------------- two tables, conditioning on the total score
  * THE ORDINAL EDGE LAW, and why no tilting or reweighting is needed. Under H0: phi1 = phi2 = phi
  * the joint density of the pair, conditional on both margins WITHIN each table, is

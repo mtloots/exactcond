@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "exactcond"
+version = "0.2.0"
+description = "Exact conditional reference distributions for tables and selected linear models"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "GPL-3.0-or-later"}
+authors = [{name = "M. Theodor Loots", email = "theo.loots@gmail.com"}]
+
+[project.urls]
+Homepage = "https://github.com/mtloots/exactcond"

@@ -13,6 +13,11 @@ extern void C_ec_rc_two(const int*, const int*, const int*, const int*, const in
 extern void C_ec_sphere_maxquad(const double*, const double*, const int*, const int*,
                                 const int*, const int*, double*);
 extern void C_ec_pvalue(const double*, const double*, const int*, double*);
+extern void C_ec_multi(const int*, const int*, const int*, const int*, const int*, const int*,
+                       const int*, const int*, const int*, const int*, const int*,
+                       double*, double*, double*);
+extern void C_ec_diffnet(const double*, const int*, const int*, const int*, const int*, const int*,
+                         const int*, const int*, const int*, double*, double*, double*);
 
 static const R_CMethodDef CEntries[] = {
     {"C_ec_rc_null",        (DL_FUNC) &C_ec_rc_null,        10},
@@ -20,6 +25,8 @@ static const R_CMethodDef CEntries[] = {
     {"C_ec_rc_two",         (DL_FUNC) &C_ec_rc_two,         12},
     {"C_ec_sphere_maxquad", (DL_FUNC) &C_ec_sphere_maxquad,  7},
     {"C_ec_pvalue",         (DL_FUNC) &C_ec_pvalue,          4},
+    {"C_ec_multi",          (DL_FUNC) &C_ec_multi,          14},
+    {"C_ec_diffnet",        (DL_FUNC) &C_ec_diffnet,        12},
     {NULL, NULL, 0}
 };
 

@@ -53,6 +53,22 @@ strongly associated table it is not, at any number of draws, and the failure arr
 both tables are strongly associated, which is the case in which the correct answer is a large
 p-value.
 
+`ec_multi_test()` answers "does ANY of these items differ across the groups" with ONE exact test:
+the sum or the maximum over items of a per-item statistic, referred to the law obtained by permuting
+the group labels across respondents or, when a cluster is given, across clusters that keep their
+members. This is Pesarin's nonparametric combination with the direct and Tippett combining functions: one
+p-value for the whole battery, so nothing to correct for multiplicity, and the per-item statistics
+referred to the same permutations for a closed follow-up in the manner of Westfall and Young. The sum has power against
+many items moving a little, the maximum against one moving a lot, and the cluster permutation is the
+exact treatment of an interviewer or fieldworker effect, at negligible cost when there is none.
+
+`ec_diffnet_test()` carries the same idea to a network. A differential network normally rests on a
+Gaussian null; here the edge statistic is unchanged and only its reference is, from a chi-square to
+a permutation of the group labels, which is exact whatever the marginals are and distribution-free
+on ranks. One p-value for the whole network, per-edge p-values from the same permutations, and a
+cluster permutation for interviewer effects. The route is the established one (NetCoMi's `diffnet`,
+the Network Comparison Test, exchangeability blocks); what is here is the implementation.
+
 ## Reproducibility
 
 Every replicate draws from its own stream, seeded from the base seed and the replicate index, so

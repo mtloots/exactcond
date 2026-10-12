@@ -1,13 +1,15 @@
+## Submission
+
+This is the first submission of exactcond, at version 0.2.0. Version 0.1.0 was prepared and checked
+on win-builder in September but never submitted; 0.2.0 adds two exported functions,
+`ec_diffnet_test()` (a permutation differential-network test) and `ec_multi_test()` (a single
+permutation test for a battery of categorical items), with tests for both.
+
 ## Test environments
 
-* local macOS 15 (arm64), R 4.5.1, `R CMD check --as-cran`: 0 errors, 0 warnings, 2 notes.
-* win-builder R-devel (R Under development, 2026-08-31 r90457 ucrt): 0 errors, 0 warnings, 1 note.
-  The note was "New submission" together with a spell-check flag on the word "conditionings", which
-  has since been reworded. Notably the local "HTML version of manual" note did NOT appear there,
-  confirming it was a missing local tool rather than a property of the package.
-* win-builder R-release: submitted at the same time.
-
-No GitHub Actions matrix has been run.
+* local macOS (arm64), R 4.5, `R CMD check --as-cran`: 0 errors, 0 warnings, 2 notes.
+* win-builder R-devel: see the result recorded below once it returns.
+* GitHub Actions: Linux (R devel, release, oldrel-1), macOS and Windows (R release).
 
 ## R CMD check results
 

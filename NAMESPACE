@@ -1,4 +1,6 @@
 useDynLib(exactcond, .registration = TRUE)
-export(ec_rc_test, ec_rc_null, ec_rc_two, ec_sphere_maxquad, ec_pvalue, ec_scores)
+export(ec_rc_test, ec_rc_null, ec_rc_two, ec_sphere_maxquad, ec_pvalue, ec_scores, ec_multi_test, ec_diffnet_test)
 importFrom(stats, quantile)
 S3method(print, ec_rc)
+S3method(print, ec_multi)
+S3method(print, ec_diffnet)

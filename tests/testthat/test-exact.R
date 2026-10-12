@@ -101,3 +101,93 @@ test_that("misuse is refused rather than quietly accommodated", {
   expect_error(ec_rc_test(matrix(1:9, 3), v = c(1, 2)), "one score per column")
   expect_error(ec_rc_two(matrix(1:9, 3), matrix(1:9, 3), v = c(0, 0.5, 1)), "integer scores")
 })
+
+## ---- the multi-item omnibus ------------------------------------------------------------------
+test_that("with one binary item and respondents exchangeable, the omnibus is the exact test of the table", {
+  set.seed(5); g <- rep(c("a", "b", "c"), c(40, 50, 45)); x <- rbinom(135, 1, ifelse(g == "c", 0.6, 0.85))
+  om <- ec_multi_test(matrix(x, ncol = 1), g, stat = "pearson", B = 40000L, seed = 9)
+  rc <- ec_rc_test(table(g, x), stat = "pearson", B = 40000L, seed = 9)
+  expect_equal(om$sum$statistic, rc$statistic)
+  expect_lt(abs(om$sum$p.value - rc$p.value), 0.01)
+})
+
+test_that("the sum and the maximum do not depend on the order of the items", {
+  set.seed(6); g <- rep(1:3, c(30, 30, 30)); x <- matrix(rbinom(270, 1, 0.8), ncol = 3)
+  a <- ec_multi_test(x, g, B = 3000L, seed = 2); b <- ec_multi_test(x[, 3:1], g, B = 3000L, seed = 2)
+  expect_equal(a$sum$statistic, b$sum$statistic); expect_equal(a$max$statistic, b$max$statistic)
+  expect_equal(a$sum$p.value, b$sum$p.value); expect_equal(a$max$p.value, b$max$p.value)
+})
+
+test_that("the cluster permutation keeps every cluster whole and rejects a cluster that straddles groups", {
+  set.seed(7); g <- rep(c("a", "b"), each = 60); cl <- rep(1:12, each = 10)
+  x <- matrix(rbinom(120 * 2, 1, 0.7), ncol = 2)
+  r <- ec_multi_test(x, g, cluster = cl, B = 2000L, seed = 3)
+  expect_equal(r$clusters, 12L); expect_equal(r$exchangeable, "clusters")
+  expect_error(ec_multi_test(x, g, cluster = rep(1:12, 10), B = 200L), "inside one group")
+})
+
+test_that("a strong cluster effect inflates the respondent permutation and not the cluster permutation", {
+  ## ten clusters per group, a cluster effect large against the item variance, NO group effect
+  set.seed(8); reject <- c(resp = 0L, clus = 0L); R <- 60L
+  for (i in seq_len(R)) {
+    g <- rep(c("a", "b"), each = 100); cl <- rep(1:20, each = 10)
+    u <- rnorm(20, 0, 1.5)[cl]
+    x <- matrix(rbinom(200 * 3, 1, plogis(1 + u)), ncol = 3)
+    pr <- ec_multi_test(x, g, B = 400L, seed = i)$max$p.value
+    pc <- ec_multi_test(x, g, cluster = cl, B = 400L, seed = i)$max$p.value
+    reject <- reject + c(pr < 0.05, pc < 0.05) }
+  expect_gt(reject[["resp"]], reject[["clus"]])
+  expect_lte(reject[["clus"]], 9L)                       # about 5 per cent of 60, with slack
+})
+
+test_that("the omnibus does not depend on the thread count", {
+  old <- Sys.getenv("OMP_NUM_THREADS", unset = NA)
+  set.seed(9); g <- rep(1:3, c(20, 20, 20)); x <- matrix(rbinom(180, 1, 0.75), ncol = 3)
+  Sys.setenv(OMP_NUM_THREADS = "1"); a <- ec_multi_test(x, g, B = 1000L, seed = 13)
+  Sys.setenv(OMP_NUM_THREADS = "4"); b <- ec_multi_test(x, g, B = 1000L, seed = 13)
+  if (is.na(old)) Sys.unsetenv("OMP_NUM_THREADS") else Sys.setenv(OMP_NUM_THREADS = old)
+  expect_equal(a$sum$p.value, b$sum$p.value); expect_equal(a$items$p.value, b$items$p.value)
+})
+
+## ---- the differential network ----------------------------------------------------------------
+test_that("the differential network finds a planted edge and leaves the others alone", {
+  set.seed(11); n <- 200; p <- 6; g <- rep(c("a", "b"), each = n / 2)
+  z <- matrix(rnorm(n * p), n); z[g == "b", 2] <- 0.8 * z[g == "b", 1] + 0.6 * z[g == "b", 2]
+  r <- ec_diffnet_test(z, g, B = 999L, seed = 1)
+  expect_lt(r$max$p.value, 0.01)
+  e <- r$edges[order(r$edges$p.value), ]
+  expect_equal(paste(e$from[1], e$to[1]), "V1 V2")
+  expect_gt(min(e$p.value[-1]), 0.05)
+})
+
+test_that("its p-value is uniform under the null, with Gaussian and with heavy-tailed data", {
+  skip_on_cran()
+  for (kind in c("gauss", "t3")) {
+    set.seed(if (kind == "gauss") 21 else 22)
+    pv <- vapply(seq_len(200), function(i) {
+      y <- if (kind == "t3") matrix(rt(120 * 5, df = 3), 120) else matrix(rnorm(120 * 5), 120)
+      ec_diffnet_test(y, rep(c("a", "b"), each = 60), B = 199L, seed = i)$max$p.value }, 0)
+    expect_lt(abs(mean(pv < 0.10) - 0.10), 0.06)
+  }
+})
+
+test_that("an affine rescoring of a variable leaves the network alone", {
+  set.seed(12); y <- matrix(rnorm(150 * 4), 150); g <- rep(c("a", "b"), each = 75)
+  a <- ec_diffnet_test(y, g, B = 499L, seed = 5)
+  y2 <- y; y2[, 2] <- 3.5 * y2[, 2] - 7
+  b <- ec_diffnet_test(y2, g, B = 499L, seed = 5)
+  expect_equal(a$edges$statistic, b$edges$statistic)
+  expect_equal(a$max$p.value, b$max$p.value)
+})
+
+test_that("the cluster permutation holds its size where the respondent permutation does not", {
+  skip_on_cran()
+  set.seed(13); rej <- c(resp = 0L, clus = 0L)
+  for (i in seq_len(80)) {
+    g <- rep(c("a", "b"), each = 90); cl <- paste(g, rep(rep(1:9, each = 10), 2))
+    y <- matrix(rnorm(180 * 5), 180) + setNames(rnorm(18, 0, 0.9), unique(cl))[cl]
+    rej <- rej + c(ec_diffnet_test(y, g, B = 199L, seed = i)$max$p.value < 0.05,
+                   ec_diffnet_test(y, g, cluster = cl, B = 199L, seed = i)$max$p.value < 0.05) }
+  expect_gt(rej[["resp"]], rej[["clus"]])
+  expect_lte(rej[["clus"]], 12L)
+})
